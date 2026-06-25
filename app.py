@@ -474,6 +474,7 @@ class WorkerClient:
     def __init__(self):
         self.worker_url = Config.CLOUDFLARE_WORKER_URL
         self.api_key = Config.WORKER_API_KEY
+        self.cookies = {}  # Cho phép update từ /api/cookies endpoint
         self.session = requests.Session()
         self.session.headers.update({
             "Content-Type": "application/json",
@@ -481,10 +482,16 @@ class WorkerClient:
         })
     
     def _headers(self) -> Dict[str, str]:
-        return {
+        headers = {
             "Content-Type": "application/json",
             "X-API-Key": self.api_key,
         }
+        # Forward cookies to Worker nếu đã override
+        if self.cookies.get("XSRF-TOKEN"):
+            headers["X-Xsrf-Token-Override"] = self.cookies["XSRF-TOKEN"]
+        if self.cookies.get("sonjj_session"):
+            headers["X-Sonjj-Session-Override"] = self.cookies["sonjj_session"]
+        return headers
     
     def create_email(self, username: str = "random") -> TempEmail:
         """Tạo email qua Worker"""
@@ -1040,7 +1047,9 @@ def api_update_cookies():
             "error": "At least one cookie value is required"
         }), 400
     
-    # Update cookies in SmailProClient
+    # Update cookies (works for both SmailProClient and WorkerClient)
+    if not hasattr(client, 'cookies'):
+        client.cookies = {}
     if xsrf_token:
         client.cookies["XSRF-TOKEN"] = xsrf_token
     if sonjj_session:
@@ -1049,6 +1058,7 @@ def api_update_cookies():
     return jsonify({
         "success": True,
         "message": "Cookies updated successfully",
+        "mode": "worker" if Config.USE_WORKER else "direct",
         "cookies": {
             "XSRF-TOKEN": "set" if client.cookies.get("XSRF-TOKEN") else "not set",
             "sonjj_session": "set" if client.cookies.get("sonjj_session") else "not set"

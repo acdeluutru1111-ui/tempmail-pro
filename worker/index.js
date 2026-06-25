@@ -49,7 +49,7 @@ export default {
 
             // GET /create?username=xxx
             if (path === "/create") {
-                return await handleCreate(url, env, corsHeaders);
+                return await handleCreate(url, request, env, corsHeaders);
             }
 
             // POST /inbox/:email
@@ -84,7 +84,7 @@ export default {
  * Tạo email mới qua SmailPro
  * GET /create?username=random
  */
-async function handleCreate(url, env, corsHeaders) {
+async function handleCreate(url, request, env, corsHeaders) {
     const username = url.searchParams.get("username") || "random";
 
     const smailUrl = new URL(`${SMAILPRO_BASE}/app/create`);
@@ -95,7 +95,7 @@ async function handleCreate(url, env, corsHeaders) {
 
     const resp = await fetch(smailUrl.toString(), {
         method: "GET",
-        headers: getSmailHeaders(env),
+        headers: getSmailHeaders(env, request),
     });
 
     const data = await resp.json();
@@ -115,7 +115,7 @@ async function handleInbox(email, request, env, corsHeaders) {
 
     const resp = await fetch(`${SMAILPRO_BASE}/app/inbox`, {
         method: "POST",
-        headers: getSmailHeaders(env),
+        headers: getSmailHeaders(env, request),
         body: JSON.stringify([{
             address: email,
             timestamp: parseInt(body.timestamp) || 0,
@@ -189,9 +189,9 @@ async function handleSonjjMessage(url, env, corsHeaders) {
 // ════════════════════════════════════════════════════════════════
 
 /**
- * Headers chuẩn cho SmailPro (bao gồm cookies từ secrets)
+ * Headers chuẩn cho SmailPro (bao gồm cookies từ secrets hoặc override)
  */
-function getSmailHeaders(env) {
+function getSmailHeaders(env, request) {
     const headers = {
         "accept": "*/*",
         "accept-language": "en-US,en;q=0.9",
@@ -203,14 +203,17 @@ function getSmailHeaders(env) {
         "sec-fetch-site": "same-origin",
     };
 
-    // Thêm cookies nếu có trong env secrets
+    // Cookies: ưu tiên override từ header, fallback về env secrets
+    const xsrfToken = request?.headers?.get("X-Xsrf-Token-Override") || env.XSRF_TOKEN;
+    const sonjjSession = request?.headers?.get("X-Sonjj-Session-Override") || env.SONJJ_SESSION;
+
     const cookies = [];
-    if (env.XSRF_TOKEN) {
-        cookies.push(`XSRF-TOKEN=${env.XSRF_TOKEN}`);
-        headers["x-xsrf-token"] = env.XSRF_TOKEN;
+    if (xsrfToken) {
+        cookies.push(`XSRF-TOKEN=${xsrfToken}`);
+        headers["x-xsrf-token"] = xsrfToken;
     }
-    if (env.SONJJ_SESSION) {
-        cookies.push(`sonjj_session=${env.SONJJ_SESSION}`);
+    if (sonjjSession) {
+        cookies.push(`sonjj_session=${sonjjSession}`);
     }
     if (cookies.length > 0) {
         headers["cookie"] = cookies.join("; ");
