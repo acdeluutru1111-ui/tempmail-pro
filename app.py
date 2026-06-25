@@ -46,6 +46,8 @@ from collections import defaultdict
 from threading import Lock
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from flask import Flask, request, jsonify, render_template_string
 from werkzeug.exceptions import HTTPException
 
@@ -476,9 +478,27 @@ class WorkerClient:
         self.api_key = Config.WORKER_API_KEY
         self.cookies = {}  # Cho phép update từ /api/cookies endpoint
         self.session = requests.Session()
+        
+        # Retry logic cho SSL/connection errors
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[502, 503, 504],
+            allowed_methods=["GET", "POST"],
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=10,
+            pool_maxsize=20,
+        )
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+        
         self.session.headers.update({
             "Content-Type": "application/json",
             "X-API-Key": self.api_key,
+            "Connection": "keep-alive",
         })
     
     def _headers(self) -> Dict[str, str]:
@@ -494,24 +514,41 @@ class WorkerClient:
         return headers
     
     def create_email(self, username: str = "random") -> TempEmail:
-        """Tạo email qua Worker"""
-        try:
-            resp = self.session.get(
-                f"{self.worker_url}/create",
-                params={"username": username},
-                headers=self._headers(),
-                timeout=Config.REQUEST_TIMEOUT,
-            )
-            
-            if resp.status_code == 429:
-                raise ValueError("SmailPro rate limit - Worker IP bị block tạm thời")
-            
-            resp.raise_for_status()
-            data = resp.json()
-        except requests.exceptions.Timeout:
-            raise ValueError("Worker timeout - thử lại sau vài giây")
-        except requests.exceptions.RequestException as e:
-            raise ValueError(f"Worker error: {e}")
+        """Tạo email qua Worker (với retry cho SSL errors)"""
+        last_error = None
+        for attempt in range(3):
+            try:
+                resp = self.session.get(
+                    f"{self.worker_url}/create",
+                    params={"username": username},
+                    headers=self._headers(),
+                    timeout=Config.REQUEST_TIMEOUT,
+                )
+                
+                if resp.status_code == 429:
+                    raise ValueError("SmailPro rate limit - Worker IP bị block tạm thời")
+                
+                resp.raise_for_status()
+                data = resp.json()
+                last_error = None
+                break
+            except requests.exceptions.SSLError as e:
+                last_error = e
+                if attempt < 2:
+                    time.sleep(1 * (attempt + 1))
+                    continue
+            except requests.exceptions.ConnectionError as e:
+                last_error = e
+                if attempt < 2:
+                    time.sleep(1 * (attempt + 1))
+                    continue
+            except requests.exceptions.Timeout:
+                raise ValueError("Worker timeout - thử lại sau vài giây")
+            except requests.exceptions.RequestException as e:
+                raise ValueError(f"Worker error: {e}")
+        
+        if last_error:
+            raise ValueError(f"Worker connection failed after retries: {last_error}")
         
         address = (
             data.get("address")
@@ -529,29 +566,39 @@ class WorkerClient:
         )
     
     def get_inbox(self, email: TempEmail) -> tuple[Optional[str], List[InboxMessage]]:
-        """Lấy inbox qua Worker"""
-        try:
-            resp = self.session.post(
-                f"{self.worker_url}/inbox/{urllib.parse.quote(email.address, safe='')}",
-                headers=self._headers(),
-                json={
-                    "timestamp": email.timestamp,
-                    "key": email.key,
-                },
-                timeout=Config.REQUEST_TIMEOUT,
-            )
-            
-            if resp.status_code == 429:
-                print(f"[WARN] SmailPro rate limit via Worker")
+        """Lấy inbox qua Worker (với retry cho SSL errors)"""
+        for attempt in range(3):
+            try:
+                resp = self.session.post(
+                    f"{self.worker_url}/inbox/{urllib.parse.quote(email.address, safe='')}",
+                    headers=self._headers(),
+                    json={
+                        "timestamp": email.timestamp,
+                        "key": email.key,
+                    },
+                    timeout=Config.REQUEST_TIMEOUT,
+                )
+                
+                if resp.status_code == 429:
+                    print(f"[WARN] SmailPro rate limit via Worker")
+                    return None, []
+                
+                resp.raise_for_status()
+                inbox_resp = resp.json()
+                break
+            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+                if attempt < 2:
+                    time.sleep(1 * (attempt + 1))
+                    continue
+                print(f"[WARN] Worker inbox SSL/connection error: {e}")
                 return None, []
-            
-            resp.raise_for_status()
-            inbox_resp = resp.json()
-        except requests.exceptions.Timeout:
-            print(f"[WARN] Worker inbox timeout for {email.address}")
-            return None, []
-        except requests.exceptions.RequestException as e:
-            print(f"[WARN] Worker inbox error: {e}")
+            except requests.exceptions.Timeout:
+                print(f"[WARN] Worker inbox timeout for {email.address}")
+                return None, []
+            except requests.exceptions.RequestException as e:
+                print(f"[WARN] Worker inbox error: {e}")
+                return None, []
+        else:
             return None, []
         
         # Extract payload
@@ -569,19 +616,28 @@ class WorkerClient:
         return payload, messages
     
     def _fetch_sonjj_inbox(self, payload: str) -> List[InboxMessage]:
-        """Lấy messages từ Sonjj qua Worker"""
-        try:
-            resp = self.session.get(
-                f"{self.worker_url}/sonjj/inbox",
-                headers=self._headers(),
-                params={"payload": payload},
-                timeout=Config.SONJJ_TIMEOUT,
-            )
-            
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            print(f"[WARN] Sonjj inbox via Worker error: {e}")
+        """Lấy messages từ Sonjj qua Worker (với retry)"""
+        for attempt in range(3):
+            try:
+                resp = self.session.get(
+                    f"{self.worker_url}/sonjj/inbox",
+                    headers=self._headers(),
+                    params={"payload": payload},
+                    timeout=Config.SONJJ_TIMEOUT,
+                )
+                
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError):
+                if attempt < 2:
+                    time.sleep(1 * (attempt + 1))
+                    continue
+                return []
+            except Exception as e:
+                print(f"[WARN] Sonjj inbox via Worker error: {e}")
+                return []
+        else:
             return []
         
         raw_messages = data.get("messages", []) if isinstance(data, dict) else data
@@ -603,21 +659,33 @@ class WorkerClient:
         return messages
     
     def get_message_detail(self, mid: str, payload: str) -> MessageDetail:
-        """Lấy chi tiết message qua Worker"""
-        try:
-            resp = self.session.get(
-                f"{self.worker_url}/sonjj/message",
-                headers=self._headers(),
-                params={"payload": payload, "mid": mid},
-                timeout=Config.SONJJ_TIMEOUT,
-            )
-            
-            resp.raise_for_status()
-            data = resp.json()
-        except requests.exceptions.Timeout:
-            raise ValueError("Worker message timeout")
-        except requests.exceptions.RequestException as e:
-            raise ValueError(f"Worker message error: {e}")
+        """Lấy chi tiết message qua Worker (với retry)"""
+        last_error = None
+        for attempt in range(3):
+            try:
+                resp = self.session.get(
+                    f"{self.worker_url}/sonjj/message",
+                    headers=self._headers(),
+                    params={"payload": payload, "mid": mid},
+                    timeout=Config.SONJJ_TIMEOUT,
+                )
+                
+                resp.raise_for_status()
+                data = resp.json()
+                last_error = None
+                break
+            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+                last_error = e
+                if attempt < 2:
+                    time.sleep(1 * (attempt + 1))
+                    continue
+            except requests.exceptions.Timeout:
+                raise ValueError("Worker message timeout")
+            except requests.exceptions.RequestException as e:
+                raise ValueError(f"Worker message error: {e}")
+        
+        if last_error:
+            raise ValueError(f"Worker message connection failed: {last_error}")
         
         return MessageDetail(
             mid=mid,
