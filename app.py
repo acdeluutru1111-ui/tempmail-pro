@@ -59,7 +59,7 @@ class Config:
     # Flask
     DEBUG = os.getenv("FLASK_DEBUG", "0") == "1"
     HOST = "0.0.0.0"
-    PORT = int(os.getenv("PORT", 5000))
+    PORT = int(os.getenv("PORT", 7860))
     SECRET_KEY = os.getenv("SECRET_KEY", "temp-mail-secret-key-change-in-production")
     
     # SmailPro
@@ -2506,8 +2506,11 @@ HTML_TEMPLATE = '''
 # ════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    
     print("=" * 60)
-    print("🚀 TEMPMAIL PRO - Starting server...")
+    print("🚀 TEMPMAIL PRO")
     print("=" * 60)
     print(f"📡 Server: http://{Config.HOST}:{Config.PORT}")
     print(f"🔧 Debug: {Config.DEBUG}")
@@ -2518,16 +2521,10 @@ if __name__ == "__main__":
         print(f"🌐 Proxies: {len(Config.PROXIES)} configured")
     print("=" * 60)
     
-    # Disable SSL warnings
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    
-    # Run Flask app
-    # use_reloader=False để tránh SystemExit:3 khi chạy qua VS Code debugger
     app.run(
         host=Config.HOST,
         port=Config.PORT,
-        debug=Config.DEBUG,
+        debug=False,
         threaded=True,
         use_reloader=False
     )

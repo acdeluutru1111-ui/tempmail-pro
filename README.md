@@ -1,3 +1,12 @@
+---
+title: TempMail Pro
+emoji: 📧
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # 📧 TempMail Pro
 
 Temporary email service with IP rotation via Cloudflare Workers.
