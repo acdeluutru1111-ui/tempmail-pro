@@ -3,11 +3,23 @@ services:
     name: tempmail-pro
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 4 -b 0.0.0.0:$PORT app:app
+    startCommand: gunicorn -w 4 -b 0.0.0.0:$PORT app:flask_app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+      - key: BOT_TOKEN
+        sync: false
+      - key: BOT_USERNAME
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
       - key: CLOUDFLARE_WORKER_URL
         sync: false
       - key: WORKER_API_KEY
+        sync: false
+      - key: XSRF_TOKEN
+        sync: false
+      - key: SONJJ_SESSION
+        sync: false
+      - key: INTERNAL_KEY
         sync: false

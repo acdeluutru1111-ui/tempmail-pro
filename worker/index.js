@@ -68,6 +68,12 @@ export default {
                 return await handleSonjjMessage(url, env, corsHeaders);
             }
 
+            // POST /telegram/:method — Proxy Telegram Bot API
+            if (path.startsWith("/telegram/")) {
+                const method = path.replace("/telegram/", "");
+                return await handleTelegram(method, request, corsHeaders);
+            }
+
             return jsonResponse({ error: "Not found" }, 404, corsHeaders);
 
         } catch (error) {
@@ -179,6 +185,28 @@ async function handleSonjjMessage(url, env, corsHeaders) {
     const data = await resp.json();
 
     return new Response(JSON.stringify(data), {
+        status: resp.status,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+    });
+}
+
+/**
+ * Proxy Telegram Bot API calls
+ * POST /telegram/:method
+ * Body: JSON payload for the Telegram API method
+ */
+async function handleTelegram(method, request, corsHeaders) {
+    const body = await request.text();
+    
+    const resp = await fetch(`https://api.telegram.org/bot${request.headers.get("X-Bot-Token")}/${method}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body,
+    });
+
+    const data = await resp.text();
+    
+    return new Response(data, {
         status: resp.status,
         headers: { "Content-Type": "application/json", ...corsHeaders },
     });

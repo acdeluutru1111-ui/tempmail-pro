@@ -6,17 +6,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy code
-COPY app.py .
+# Copy entire application
+COPY . .
 
-# HF Spaces chạy port 7860
+# HF Spaces port
 EXPOSE 7860
 
-# Start với gunicorn
-CMD ["gunicorn", \
-     "--workers", "4", \
-     "--threads", "2", \
-     "--bind", "0.0.0.0:7860", \
-     "--timeout", "120", \
-     "--keep-alive", "5", \
-     "app:app"]
+# Run app (Flask + Telegram bot dual-mode)
+CMD ["python", "app.py"]
