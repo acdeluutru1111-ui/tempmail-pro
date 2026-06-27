@@ -2096,13 +2096,13 @@ HTML_TEMPLATE = '''
             },
             
             // ═══ LOẠI 2: Rewarded Popup (khi hết email limit) ═══
-            // SDK: show_11208686('pop') → Popup offer + reward
+            // SDK: show_11208686({ type: 'pop' }) → Mở offer page trực tiếp + reward
             triggerRewardedPopup() {
                 console.log('[AD] Rewarded Popup triggered (limit reached)');
                 this.trackImpression('rewarded_popup', 'limit_reached');
                 
                 if (typeof show_11208686 === 'function') {
-                    show_11208686('pop').then(() => {
+                    show_11208686({ type: 'pop' }).then(() => {
                         console.log('[AD] Rewarded Popup completed');
                         this.trackImpression('rewarded_popup', 'completed');
                         this.grantAdReward();
