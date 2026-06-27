@@ -96,6 +96,29 @@ class Config:
     
     # Email limit per client
     MAX_EMAILS_PER_CLIENT = 10
+    
+    # ═══ Ad Configuration ═══
+    # Monetag Publisher ID (thay bằng ID thật khi deploy)
+    AD_PUBLISHER_ID = "3387462"
+    AD_ZONE_ID = "11208686"
+    
+    # Popunder trigger: mỗi N lần inbox fetch
+    AD_POPUNDER_INTERVAL = 2  # Mỗi 2 lần fetch inbox → popunder
+    
+    # Interstitial trigger: mỗi N lần create email
+    AD_INTERSTITIAL_INTERVAL = 3  # Mỗi 3 lần create email → interstitial
+    
+    # Social Bar: auto-refresh interval (giây)
+    AD_SOCIAL_BAR_INTERVAL = 60
+    
+    # Rewarded Video: số email thưởng khi xem hết video
+    AD_REWARD_EMAILS = 1
+    
+    # Max rewarded videos per day per IP
+    AD_MAX_REWARDED_PER_DAY = 5
+    
+    # Banner: vị trí (top/bottom)
+    AD_BANNER_POSITION = "bottom"
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -477,6 +500,20 @@ client_email_counts = defaultdict(int)
 # Per-client email storage (IP -> list of email dicts, for history display)
 client_emails = defaultdict(list)
 
+# ═══ Ad Tracking (Backend) ═══
+# Inbox fetch counter per IP (for popunder trigger)
+ad_inbox_fetch_counts = defaultdict(int)
+# Create email counter per IP (for interstitial trigger)
+ad_create_counts = defaultdict(int)
+# Ad impression log per IP (for analytics)
+ad_impressions = defaultdict(list)
+# Rewarded video counter per IP per day
+ad_rewarded_today = defaultdict(int)
+# Rewarded video last reset date
+ad_rewarded_last_reset = {}
+# Token pool per IP (bonus emails from rewarded videos)
+ad_bonus_tokens = defaultdict(int)
+
 
 # ════════════════════════════════════════════════════════════════════
 #                         MIDDLEWARES
@@ -572,11 +609,14 @@ def api_create_email():
     """
     ip = request.remote_addr
     
-    # Check email limit per client using dedicated counter
-    if client_email_counts[ip] >= Config.MAX_EMAILS_PER_CLIENT:
+    # Check email limit per client using dedicated counter (include bonus tokens)
+    effective_limit = Config.MAX_EMAILS_PER_CLIENT + ad_bonus_tokens[ip]
+    if client_email_counts[ip] >= effective_limit:
         return jsonify({
             "success": False,
-            "error": f"Đã đạt giới hạn {Config.MAX_EMAILS_PER_CLIENT} email. Vui lòng sử dụng email có sẵn."
+            "error": f"Đã đạt giới hạn {effective_limit} email. Xem video để nhận thêm!",
+            "bonus_tokens": ad_bonus_tokens[ip],
+            "show_reward": True,
         }), 403
     
     # Increment counter BEFORE calling API (counts even failed attempts)
@@ -600,7 +640,8 @@ def api_create_email():
         return jsonify({
             "success": True,
             "email": email_dict,
-            "remaining": Config.MAX_EMAILS_PER_CLIENT - client_email_counts[ip]
+            "remaining": effective_limit - client_email_counts[ip],
+            "bonus_tokens": ad_bonus_tokens[ip],
         })
     
     except Exception as e:
@@ -845,6 +886,204 @@ def api_health():
     })
 
 
+# ════════════════════════════════════════════════════════════════════
+#                        AD TRACKING API
+# ════════════════════════════════════════════════════════════════════
+
+@app.route("/api/ad/track", methods=["POST"])
+def api_ad_track():
+    """
+    Track ad impression from frontend
+    
+    Body: {
+        "type": "popunder|interstitial|social_bar|banner|rewarded",
+        "trigger": "inbox_fetch|create_email|page_load|rewarded_complete"
+    }
+    """
+    data = request.get_json() or {}
+    ad_type = data.get("type", "unknown")
+    trigger = data.get("trigger", "unknown")
+    ip = request.remote_addr
+    
+    # Log impression
+    impression = {
+        "type": ad_type,
+        "trigger": trigger,
+        "timestamp": datetime.now().isoformat(),
+        "ip": ip,
+    }
+    ad_impressions[ip].append(impression)
+    
+    # Keep only last 100 impressions per IP
+    if len(ad_impressions[ip]) > 100:
+        ad_impressions[ip] = ad_impressions[ip][-100:]
+    
+    return jsonify({
+        "success": True,
+        "tracked": True,
+        "type": ad_type,
+    })
+
+
+@app.route("/api/ad/config", methods=["GET"])
+def api_ad_config():
+    """
+    Lấy ad configuration cho frontend
+    
+    Response: { "config": {...} }
+    """
+    ip = request.remote_addr
+    
+    return jsonify({
+        "success": True,
+        "config": {
+            "publisher_id": Config.AD_PUBLISHER_ID,
+            "popunder_interval": Config.AD_POPUNDER_INTERVAL,
+            "interstitial_interval": Config.AD_INTERSTITIAL_INTERVAL,
+            "social_bar_interval": Config.AD_SOCIAL_BAR_INTERVAL,
+            "reward_emails": Config.AD_REWARD_EMAILS,
+            "max_rewarded_per_day": Config.AD_MAX_REWARDED_PER_DAY,
+            "banner_position": Config.AD_BANNER_POSITION,
+            # Current counters for this IP
+            "inbox_fetch_count": ad_inbox_fetch_counts[ip],
+            "create_count": ad_create_counts[ip],
+            "rewarded_today": ad_rewarded_today[ip],
+            "bonus_tokens": ad_bonus_tokens[ip],
+        }
+    })
+
+
+@app.route("/api/ad/inbox-fetch", methods=["POST"])
+def api_ad_inbox_fetch():
+    """
+    Track inbox fetch + return ad trigger decision
+    
+    Response: {
+        "count": 4,
+        "show_popunder": true,
+        "show_interstitial": false
+    }
+    """
+    ip = request.remote_addr
+    ad_inbox_fetch_counts[ip] += 1
+    count = ad_inbox_fetch_counts[ip]
+    
+    show_popunder = (count % Config.AD_POPUNDER_INTERVAL == 0)
+    
+    return jsonify({
+        "success": True,
+        "count": count,
+        "show_popunder": show_popunder,
+        "popunder_interval": Config.AD_POPUNDER_INTERVAL,
+    })
+
+
+@app.route("/api/ad/create-track", methods=["POST"])
+def api_ad_create_track():
+    """
+    Track create email + return interstitial trigger decision
+    
+    Response: {
+        "count": 3,
+        "show_interstitial": true
+    }
+    """
+    ip = request.remote_addr
+    ad_create_counts[ip] += 1
+    count = ad_create_counts[ip]
+    
+    show_interstitial = (count % Config.AD_INTERSTITIAL_INTERVAL == 0)
+    
+    return jsonify({
+        "success": True,
+        "count": count,
+        "show_interstitial": show_interstitial,
+        "interstitial_interval": Config.AD_INTERSTITIAL_INTERVAL,
+    })
+
+
+@app.route("/api/ad/reward", methods=["POST"])
+def api_ad_reward():
+    """
+    Reward user after watching video
+    
+    Body: { "completed": true }
+    Response: { "bonus_tokens": N }
+    """
+    ip = request.remote_addr
+    data = request.get_json() or {}
+    completed = data.get("completed", False)
+    
+    if not completed:
+        return jsonify({
+            "success": False,
+            "error": "Video not completed"
+        }), 400
+    
+    # Reset daily counter if new day
+    today = datetime.now().date().isoformat()
+    if ad_rewarded_last_reset.get(ip) != today:
+        ad_rewarded_today[ip] = 0
+        ad_rewarded_last_reset[ip] = today
+    
+    # Check daily limit
+    if ad_rewarded_today[ip] >= Config.AD_MAX_REWARDED_PER_DAY:
+        return jsonify({
+            "success": False,
+            "error": f"Đã đạt giới hạn {Config.AD_MAX_REWARDED_PER_DAY} video/ngày",
+            "bonus_tokens": ad_bonus_tokens[ip],
+            "rewarded_today": ad_rewarded_today[ip],
+        }), 429
+    
+    # Grant reward
+    ad_rewarded_today[ip] += 1
+    ad_bonus_tokens[ip] += Config.AD_REWARD_EMAILS
+    
+    return jsonify({
+        "success": True,
+        "rewarded": Config.AD_REWARD_EMAILS,
+        "bonus_tokens": ad_bonus_tokens[ip],
+        "rewarded_today": ad_rewarded_today[ip],
+        "max_rewarded": Config.AD_MAX_REWARDED_PER_DAY,
+    })
+
+
+@app.route("/api/ad/stats", methods=["GET"])
+def api_ad_stats():
+    """
+    Lấy ad stats cho client
+    """
+    ip = request.remote_addr
+    today = datetime.now().date().isoformat()
+    
+    # Reset daily counter if new day
+    if ad_rewarded_last_reset.get(ip) != today:
+        ad_rewarded_today[ip] = 0
+        ad_rewarded_last_reset[ip] = today
+    
+    # Count today's impressions
+    today_impressions = [
+        imp for imp in ad_impressions.get(ip, [])
+        if imp["timestamp"].startswith(today)
+    ]
+    
+    return jsonify({
+        "success": True,
+        "stats": {
+            "inbox_fetch_count": ad_inbox_fetch_counts[ip],
+            "create_count": ad_create_counts[ip],
+            "bonus_tokens": ad_bonus_tokens[ip],
+            "rewarded_today": ad_rewarded_today[ip],
+            "max_rewarded": Config.AD_MAX_REWARDED_PER_DAY,
+            "impressions_today": len(today_impressions),
+            "impressions_by_type": {
+                ad_type: len([i for i in today_impressions if i["type"] == ad_type])
+                for ad_type in ["popunder", "interstitial", "social_bar", "banner", "rewarded"]
+            }
+        }
+    })
+
+
 @app.route("/api/cookies", methods=["POST"])
 def api_update_cookies():
     """
@@ -888,6 +1127,8 @@ def api_get_emails():
     ip = request.remote_addr
     emails = client_emails.get(ip, [])
     used = client_email_counts.get(ip, 0)
+    bonus = ad_bonus_tokens.get(ip, 0)
+    effective_limit = Config.MAX_EMAILS_PER_CLIENT + bonus
     
     return jsonify({
         "success": True,
@@ -895,7 +1136,9 @@ def api_get_emails():
         "count": len(emails),
         "used": used,
         "limit": Config.MAX_EMAILS_PER_CLIENT,
-        "remaining": max(Config.MAX_EMAILS_PER_CLIENT - used, 0)
+        "bonus_tokens": bonus,
+        "effective_limit": effective_limit,
+        "remaining": max(effective_limit - used, 0)
     })
 
 
@@ -1637,9 +1880,312 @@ HTML_TEMPLATE = '''
             margin-bottom: 12px;
             opacity: 0.5;
         }
+        
+        /* ═══ Ad Styles ═══ */
+        
+        /* Banner Ad */
+        .ad-banner-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 500;
+            background: var(--card);
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+            padding: 0;
+            min-height: 60px;
+        }
+        .ad-banner-container.hidden { display: none; }
+        .ad-banner-close {
+            position: absolute;
+            top: 2px;
+            right: 8px;
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: var(--text-muted);
+            z-index: 501;
+        }
+        
+        /* Ad Stats Widget */
+        .ad-stats-widget {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .ad-stats-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .ad-stats-icon {
+            font-size: 28px;
+        }
+        .ad-stats-info h3 {
+            font-size: 15px;
+            font-weight: 600;
+            margin: 0;
+        }
+        .ad-stats-info p {
+            font-size: 12px;
+            opacity: 0.85;
+            margin: 2px 0 0;
+        }
+        .ad-stats-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .token-display {
+            background: rgba(255,255,255,0.2);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-reward {
+            background: #fbbf24;
+            color: #1e293b;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-reward:hover {
+            background: #f59e0b;
+            transform: translateY(-1px);
+        }
+        
+        /* Rewarded Video Modal */
+        .reward-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        .reward-modal.active { display: flex; }
+        .reward-modal-content {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+        }
+        .reward-modal-content h2 {
+            font-size: 22px;
+            margin-bottom: 8px;
+        }
+        .reward-modal-content p {
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
+        .reward-video-placeholder {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 40px;
+            margin-bottom: 20px;
+            color: white;
+            font-size: 16px;
+        }
+        .reward-timer {
+            font-size: 36px;
+            font-weight: 700;
+            color: var(--primary);
+            margin: 10px 0;
+        }
+        .reward-progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .reward-progress-fill {
+            height: 100%;
+            background: var(--success);
+            border-radius: 3px;
+            transition: width 1s linear;
+        }
+        .reward-earned {
+            background: #d1fae5;
+            color: #065f46;
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        /* Padding bottom when banner is shown */
+        body.banner-visible {
+            padding-bottom: 70px;
+        }
     </style>
+    
+    <script>
+        // ═══ AdManager - Monetag SDK Integration ═══
+        const AdManager = {
+            publisherId: '3387462',
+            zoneId: '11208686',
+            initialized: false,
+            bonusTokens: 0,
+            inboxFetchCount: 0,
+            createCount: 0,
+            rewardedToday: 0,
+            maxRewarded: 5,
+            
+            async init() {
+                try {
+                    const resp = await fetch('/api/ad/config');
+                    const data = await resp.json();
+                    if (data.success) {
+                        const cfg = data.config;
+                        this.publisherId = cfg.publisher_id;
+                        this.inboxFetchCount = cfg.inbox_fetch_count;
+                        this.createCount = cfg.create_count;
+                        this.rewardedToday = cfg.rewarded_today;
+                        this.bonusTokens = cfg.bonus_tokens;
+                        this.maxRewarded = cfg.max_rewarded_per_day;
+                    }
+                } catch(e) { console.warn('Ad config load failed:', e); }
+                
+                // Init In-App Interstitial (auto-show)
+                this.initInAppInterstitial();
+                this.initialized = true;
+                this.updateTokenDisplay();
+                console.log('[AD] Monetag initialized — Publisher:', this.publisherId, 'Zone:', this.zoneId);
+            },
+            
+            // ═══ LOẠI 1: Rewarded Interstitial (mỗi 2nd inbox fetch) ═══
+            // SDK: show_11208686() → Banner ads có reward
+            triggerRewardedInterstitial() {
+                console.log('[AD] Rewarded Interstitial triggered (inbox fetch)');
+                this.trackImpression('rewarded_interstitial', 'inbox_fetch');
+                
+                if (typeof show_11208686 === 'function') {
+                    show_11208686().then(() => {
+                        console.log('[AD] Rewarded Interstitial completed');
+                        this.trackImpression('rewarded_interstitial', 'completed');
+                        this.grantAdReward();
+                    }).catch(e => {
+                        console.warn('[AD] Rewarded Interstitial error/closed:', e);
+                    });
+                } else {
+                    console.warn('[AD] Monetag SDK not loaded yet');
+                }
+            },
+            
+            // ═══ LOẠI 2: Rewarded Popup (khi hết email limit) ═══
+            // SDK: show_11208686('pop') → Popup offer + reward
+            triggerRewardedPopup() {
+                console.log('[AD] Rewarded Popup triggered (limit reached)');
+                this.trackImpression('rewarded_popup', 'limit_reached');
+                
+                if (typeof show_11208686 === 'function') {
+                    show_11208686('pop').then(() => {
+                        console.log('[AD] Rewarded Popup completed');
+                        this.trackImpression('rewarded_popup', 'completed');
+                        this.grantAdReward();
+                        showAlert('🎉 +1 Email Token! Bạn có thể tạo thêm email.', 'success');
+                        loadEmailHistory();
+                    }).catch(e => {
+                        console.warn('[AD] Rewarded Popup error/closed:', e);
+                    });
+                } else {
+                    console.warn('[AD] Monetag SDK not loaded yet');
+                }
+            },
+            
+            // ═══ LOẠI 3: In-App Interstitial (auto-show) ═══
+            // SDK: show_11208686({type:'inApp',...}) → Auto-show theo lịch
+            initInAppInterstitial() {
+                console.log('[AD] In-App Interstitial initializing (auto-show)');
+                this.trackImpression('inapp_interstitial', 'page_load');
+                
+                if (typeof show_11208686 === 'function') {
+                    show_11208686({
+                        type: 'inApp',
+                        inAppSettings: {
+                            frequency: 2,      // Hiển thị 2 ads
+                            capping: 0.1,       // Trong 0.1 giờ (6 phút)
+                            interval: 30,       // Cách nhau 30 giây
+                            timeout: 5,         // Chờ 5 giây trước khi hiện
+                            everyPage: false     // Không reset khi chuyển trang
+                        }
+                    });
+                } else {
+                    // SDK chưa load → retry sau 2s
+                    setTimeout(() => this.initInAppInterstitial(), 2000);
+                }
+            },
+            
+            // ═══ Grant Reward (shared by both rewarded formats) ═══
+            async grantAdReward() {
+                try {
+                    const resp = await fetch('/api/ad/reward', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ completed: true })
+                    });
+                    const data = await resp.json();
+                    
+                    if (data.success) {
+                        this.bonusTokens = data.bonus_tokens;
+                        this.rewardedToday = data.rewarded_today;
+                        this.updateTokenDisplay();
+                        console.log(`[AD] Reward granted: +${data.rewarded} tokens (total: ${data.bonus_tokens})`);
+                    } else {
+                        console.warn('[AD] Reward failed:', data.error);
+                    }
+                } catch(e) {
+                    console.warn('[AD] Reward network error:', e);
+                }
+            },
+            
+            // ── Tracking ──
+            async trackImpression(type, trigger) {
+                try {
+                    fetch('/api/ad/track', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ type, trigger })
+                    });
+                } catch(e) { /* silent */ }
+            },
+            
+            // ── Update Token Display ──
+            updateTokenDisplay() {
+                const el = document.getElementById('bonus-tokens');
+                if (el) el.textContent = this.bonusTokens;
+                const rewToday = document.getElementById('rewarded-today');
+                if (rewToday) rewToday.textContent = `${this.rewardedToday}/${this.maxRewarded}`;
+            }
+        };
+    </script>
 </head>
 <body>
+    <!-- Monetag SDK — must be below <body> per docs -->
+    <script src='//libtl.com/sdk.js' data-zone='11208686' data-sdk='show_11208686'></script>
     <header>
         <div class="header-content">
             <div class="logo">
@@ -1750,6 +2296,62 @@ HTML_TEMPLATE = '''
         </div>
     </div>
 
+    <!-- ═══ Ad Stats Widget ═══ -->
+    <div class="container">
+        <div class="ad-stats-widget">
+            <div class="ad-stats-left">
+                <span class="ad-stats-icon">🎁</span>
+                <div class="ad-stats-info">
+                    <h3>Watch Ads = Free Emails</h3>
+                    <p>Watch short videos to earn bonus email tokens</p>
+                </div>
+            </div>
+            <div class="ad-stats-right">
+                <div class="token-display">
+                    <span>🪙</span>
+                    <span id="bonus-tokens">0</span>
+                    <span>tokens</span>
+                </div>
+                <button class="btn-reward" onclick="AdManager.triggerRewardedPopup()">
+                    ▶️ Watch Video (+1)
+                </button>
+                <span style="font-size:12px;opacity:0.7;">Today: <span id="rewarded-today">0/5</span></span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ═══ Rewarded Video Modal ═══ -->
+    <div class="reward-modal" id="reward-modal">
+        <div class="reward-modal-content">
+            <div id="reward-placeholder">
+                <h2>🎬 Watch & Earn</h2>
+                <p>Watch a short video to earn +1 email token</p>
+                <div class="reward-video-placeholder">
+                    <div>📺 Video Playing...</div>
+                    <div class="reward-timer" id="reward-timer">30</div>
+                    <div>seconds remaining</div>
+                    <div class="reward-progress-bar">
+                        <div class="reward-progress-fill" id="reward-progress-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="reward-earned" class="reward-earned" style="display:none;"></div>
+            <div style="display:flex;gap:10px;justify-content:center;">
+                <button class="btn btn-primary" onclick="AdManager.triggerRewardedPopup()">▶️ Watch Another</button>
+                <button class="btn btn-secondary" onclick="AdManager.closeRewardModal()">✕ Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ═══ Banner Ad (Fixed Bottom) ═══ -->
+    <div class="ad-banner-container" id="ad-banner">
+        <button class="ad-banner-close" onclick="AdManager.closeBanner()">✕</button>
+        <div style="padding:8px;color:#94a3b8;font-size:12px;">
+            <!-- Replace with real Monetag banner code -->
+            📢 Banner Advertisement Space — Publisher: <span id="ad-publisher-id"></span> | Zone: <span id="ad-zone-id"></span>
+        </div>
+    </div>
+    
     <!-- Message Detail Modal -->
     <div class="modal" id="message-modal">
         <div class="modal-content">
@@ -1775,6 +2377,7 @@ HTML_TEMPLATE = '''
         let currentAbortController = null;
         let selectEmailTimeout = null;
         let isLoadingInbox = false;
+        let adBonusTokens = 0;  // Bonus emails from rewarded videos
 
         // DOM Elements
         const emailDisplay = document.getElementById('email-display');
@@ -1819,8 +2422,21 @@ HTML_TEMPLATE = '''
                     loadEmailHistory();
                     startAutoRefresh();
                     fetchInboxForAddress(data.email.address);
+                    
+                    // ── AD: Track create + check interstitial trigger ──
+                    try {
+                        const adResp = await fetch('/api/ad/create-track', { method: 'POST' });
+                        const adData = await adResp.json();
+                        if (adData.success && adData.show_interstitial) {
+                            AdManager.triggerRewardedInterstitial();
+                        }
+                    } catch(adErr) { /* silent */ }
                 } else {
                     showAlert(data.error || 'Failed to create email', 'error');
+                    // If limit reached, offer rewarded video
+                    if (data.show_reward) {
+                        setTimeout(() => AdManager.triggerRewardedPopup(), 1500);
+                    }
                 }
             } catch (error) {
                 showAlert('Network error: ' + error.message, 'error');
@@ -1906,6 +2522,15 @@ HTML_TEMPLATE = '''
                 ? `/api/messages/${encodeURIComponent(address)}`
                 : `/api/inbox/${encodeURIComponent(address)}`;
             
+            // ── AD: Track inbox fetch + check popunder trigger ──
+            try {
+                const adResp = await fetch('/api/ad/inbox-fetch', { method: 'POST' });
+                const adData = await adResp.json();
+                if (adData.success && adData.show_popunder) {
+                    AdManager.triggerRewardedInterstitial();
+                }
+            } catch(adErr) { /* silent */ }
+            
             try {
                 const timeoutId = setTimeout(() => {
                     if (currentAbortController) currentAbortController.abort();
@@ -1974,7 +2599,12 @@ HTML_TEMPLATE = '''
                 if (data.success) {
                     emailHistory = data.emails || [];
                     emailLimit = data.limit || 10;
-                    renderEmailHistory(emailHistory, data.count, emailLimit);
+                    // Update bonus tokens from server
+                    if (data.bonus_tokens !== undefined) {
+                        AdManager.bonusTokens = data.bonus_tokens;
+                        AdManager.updateTokenDisplay();
+                    }
+                    renderEmailHistory(emailHistory, data.count, data.effective_limit || emailLimit);
                     updateLimitBar(data.used, emailLimit);
                 }
             } catch (error) {
@@ -2038,22 +2668,27 @@ HTML_TEMPLATE = '''
 
         // Update Limit Bar
         function updateLimitBar(count, limit) {
-            const pct = Math.min((count / limit) * 100, 100);
+            // Include bonus tokens from rewarded videos
+            const totalLimit = limit + (AdManager.bonusTokens || 0);
+            const pct = Math.min((count / totalLimit) * 100, 100);
             limitBarFill.style.width = pct + '%';
-            limitText.textContent = `${count}/${limit}`;
+            limitText.textContent = `${count}/${totalLimit}`;
             
             limitBarFill.classList.remove('warning', 'full');
-            if (count >= limit) {
+            if (count >= totalLimit) {
                 limitBarFill.classList.add('full');
                 generateBtn.disabled = true;
-                generateBtn.querySelector('span').textContent = 'Limit Reached';
-            } else if (count >= limit - 2) {
+                generateBtn.querySelector('span').textContent = '🎬 Watch Video for More';
+                generateBtn.onclick = () => AdManager.triggerRewardedPopup();
+            } else if (count >= totalLimit - 2) {
                 limitBarFill.classList.add('warning');
                 generateBtn.disabled = false;
-                generateBtn.querySelector('span').textContent = `Generate Email (${limit - count} left)`;
+                generateBtn.querySelector('span').textContent = `Generate Email (${totalLimit - count} left)`;
+                generateBtn.onclick = null;
             } else {
                 generateBtn.disabled = false;
                 generateBtn.querySelector('span').textContent = 'Generate Email';
+                generateBtn.onclick = null;
             }
         }
 
@@ -2277,6 +2912,11 @@ HTML_TEMPLATE = '''
 
         // Load email history on page load
         loadEmailHistory();
+        
+        // ═══ Initialize Ad System ═══
+        AdManager.init();
+        document.getElementById('ad-publisher-id').textContent = AdManager.publisherId;
+        document.getElementById('ad-zone-id').textContent = AdManager.zoneId;
 
         // Toggle Cookie Fields
         function toggleCookieFields() {

@@ -174,7 +174,7 @@ async def handle_create_email(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text("⏳ Đang tạo email...")
 
     try:
-        email = email_service.create_email()
+        email = await asyncio.to_thread(email_service.create_email)
         cache.set(f"email:{email.address}", email, 3600)
 
         user = db.get_user(user_id)
@@ -228,7 +228,7 @@ async def handle_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE, email
         cached_email = cache.get(f"email:{email_addr}")
         email = cached_email if cached_email else TempEmail(address=email_addr)
 
-        payload, messages = email_service.get_inbox(email)
+        payload, messages = await asyncio.to_thread(email_service.get_inbox, email)
 
         if payload:
             cache.set(f"payload:{email_addr}", payload, 300)

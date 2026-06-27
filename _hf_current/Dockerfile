@@ -12,5 +12,5 @@ COPY . .
 # HF Spaces port
 EXPOSE 7860
 
-# Run async bot
-CMD ["python", "main.py"]
+# Run app (Flask + Telegram bot dual-mode)
+CMD ["python", "app.py"]

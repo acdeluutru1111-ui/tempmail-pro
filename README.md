@@ -1,134 +1,91 @@
 ---
-title: TempMail Pro
+title: TempMail Telegram Bot
 emoji: 📧
-colorFrom: indigo
-colorTo: purple
+colorFrom: blue
+colorTo: green
 sdk: docker
 pinned: false
 ---
 
-# 📧 TempMail Pro
+# 📧 TempMail Telegram Bot
 
-Temporary email service with IP rotation via Cloudflare Workers.
+Telegram bot for temporary email with token system, CPA offers, and premium subscriptions.
 
-## 🏗️ Architecture
+## Features
+
+- 📧 Temporary Gmail generation
+- 🎯 Token system (earn & spend)
+- 📺 Rewarded video ads
+- 🎮 Mini games (spin wheel)
+- 📋 CPA offers integration
+- 👥 Referral program
+- 👑 Premium subscriptions
+- 🌐 IP rotation via Cloudflare Worker
+
+## Architecture
 
 ```
-User → Render.com (Flask server) → Cloudflare Worker (IP rotation) → SmailPro API
+Telegram User → Telegram Bot (polling) → Flask API → Cloudflare Worker → SmailPro API
 ```
 
-- **Render.com** — Server chính: logic, cache, rate limit, UI
-- **Cloudflare Worker** — Middleware đổi IP mỗi request (~100K IPs)
-- **Chi phí:** $0/tháng
+## Environment Variables
 
-## 📦 Project Structure
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BOT_TOKEN` | ✅ | Telegram Bot Token from @BotFather |
+| `CLOUDFLARE_WORKER_URL` | ❌ | Worker URL for IP rotation |
+| `WORKER_API_KEY` | ❌ | Worker authentication key |
+| `XSRF_TOKEN` | ❌ | SmailPro XSRF cookie |
+| `SONJJ_SESSION` | ❌ | SmailPro session cookie |
+| `CPAGRIP_USER_ID` | ❌ | CPAGrip user ID for offers |
+| `PORT` | ❌ | Server port (default: 7860) |
 
-```
-tempmail-pro/
-├── app.py                  # Flask server (backend + frontend)
-├── requirements.txt        # Python dependencies
-├── render.yaml             # Render deployment config
-├── Procfile                # Process file
-├── .env.example            # Environment variables template
-├── .gitignore
-└── worker/
-    ├── index.js            # Cloudflare Worker (IP rotation proxy)
-    └── wrangler.toml       # Worker config
-```
+## Quick Start
 
-## 🚀 Deployment
+### 1. Create Telegram Bot
+1. Open Telegram → search @BotFather
+2. Send `/newbot` → follow instructions
+3. Copy the bot token
 
-### 1. Deploy Cloudflare Worker
-
+### 2. Deploy to HF Spaces
 ```bash
-# Install wrangler
-npm install -g wrangler
+# Clone or create Space
+huggingface-cli repo create tempmail-bot --type space --space_sdk docker
 
-# Login
-wrangler login
-
-# Navigate to worker directory
-cd worker
-
-# Set secrets (paste your cookie values)
-wrangler secret put XSRF_TOKEN
-wrangler secret put SONJJ_SESSION
-wrangler secret put API_KEY        # Set a strong password
-
-# Deploy
-wrangler deploy
-# → Copy the worker URL (e.g., https://tempmail-worker.xxx.workers.dev)
-```
-
-### 2. Deploy to Render.com
-
-```bash
-# Init git and push to GitHub
-git init
+# Push code
 git add .
-git commit -m "Deploy TempMail Pro"
-gh repo create tempmail-pro --public --source=. --push
+git commit -m "Initial bot"
+git push
 ```
 
-Then on [Render Dashboard](https://dashboard.render.com):
-1. **New** → **Web Service**
-2. Connect GitHub repo `tempmail-pro`
-3. Render auto-detects `render.yaml`
-4. Set environment variables:
-   - `CLOUDFLARE_WORKER_URL` = your Worker URL
-   - `WORKER_API_KEY` = same key you set in Worker
-5. **Deploy**
+### 3. Set Secrets
+Go to Space Settings → Variables and secrets:
+- `BOT_TOKEN` = your bot token
+- `CLOUDFLARE_WORKER_URL` = (optional) worker URL
+- `WORKER_API_KEY` = (optional) worker key
 
-### 3. Update Cookies
+### 4. Test
+Open Telegram → find your bot → send `/start`
 
-Cookies expire periodically. Update via:
+## Project Structure
 
-**Option A:** POST to `/api/cookies`
-```bash
-curl -X POST https://your-app.onrender.com/api/cookies \
-  -H "Content-Type: application/json" \
-  -d '{"xsrf_token": "NEW_VALUE", "sonjj_session": "NEW_VALUE"}'
 ```
-
-**Option B:** Update Worker secrets
-```bash
-cd worker
-wrangler secret put XSRF_TOKEN
-wrangler secret put SONJJ_SESSION
+├── app.py                  # Main: Flask + Bot dual-mode
+├── bot/
+│   ├── handlers.py         # Command & callback handlers
+│   ├── tasks.py            # Tasks: video, game, offers, referral
+│   ├── database.py         # JSON-based user database
+│   └── messages.py         # Text templates
+├── services/
+│   ├── email_service.py    # SmailPro + Worker email logic
+│   └── cpa_service.py      # CPA offers
+├── utils/
+│   ├── cache.py            # In-memory cache
+│   └── helpers.py          # Utility functions
+├── worker/
+│   ├── index.js            # Cloudflare Worker proxy
+│   └── wrangler.toml       # Worker config
+├── requirements.txt
+├── Dockerfile
+└── .env.example
 ```
-
-## 💻 Local Development
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run (direct connection, no Worker needed)
-python app.py
-
-# Open http://localhost:5000
-```
-
-To test with Worker locally:
-```bash
-# Set env vars
-set CLOUDFLARE_WORKER_URL=https://tempmail-worker.xxx.workers.dev
-set WORKER_API_KEY=your-key
-
-python app.py
-```
-
-## 📊 Capacity
-
-| Resource | Limit | Status |
-|----------|-------|--------|
-| Render Free Tier | 750 hrs/month | ✅ |
-| Cloudflare Workers | 100K req/day | ✅ |
-| IP Pool | ~100,000 IPs | ✅ |
-| Max Users | ~500 concurrent | ✅ |
-
-## ⚠️ Notes
-
-- **Render cold start:** ~30s after 15min idle (free tier)
-- **Cookie expiry:** SmailPro cookies expire → update via `/api/cookies` or Worker secrets
-- **Rate limit:** Client-side 10 req/min/IP (server-side protection)

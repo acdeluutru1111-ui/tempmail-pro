@@ -1,19 +1,20 @@
 # bot/messages.py — HTML parse mode (reliable, no escape issues)
 
-WELCOME_MESSAGE = (
-    "👋 <b>Chào mừng đến với TempMail Pro!</b>\n"
+WELCOME_FIRST = (
+    "👋 <b>Chào mừng đến với RealGmailBot!</b>\n"
     "\n"
-    "🎁 Bạn nhận được <b>3 tokens</b> miễn phí!\n"
-    "\n"
+    "🎁 Bạn nhận được <b>3 tokens</b> miễn phí!"
+)
+
+MENU_MESSAGE = (
     "<b>Cách dùng:</b>\n"
     "• 1 token = 1 email tạm thời\n"
-    "• Email tồn tại 1 giờ\n"
+    "• Email tồn tại 30 phút\n"
     "• Kiểm tra inbox tự động\n"
     "\n"
-    "<b>Kiếm thêm tokens:</b>\n"
-    "📺 Xem video (30s) → +2 tokens\n"
-    "🎯 Làm nhiệm vụ → +1-5 tokens\n"
-    "👥 Mời bạn bè → +5 tokens/người\n"
+    "Bạn đang có: <b>{tokens} tokens</b>\n"
+    "\n"
+    "🎁 <b>Đăng nhập mỗi ngày để nhận 3 token free!</b>\n"
     "\n"
     "👇 Chọn chức năng bên dưới:"
 )
@@ -95,4 +96,29 @@ REFERRAL_INFO = (
     "Kiếm được: {earned} tokens\n"
     "\n"
     "💡 Mẹo: Share vào group, forum để kiếm nhiều hơn!"
+)
+
+EMAIL_LIST_HEADER = (
+    "📧 <b>Email đã tạo</b>\n"
+    "\n"
+    "Bạn có <b>{count}</b> email:\n"
+)
+
+EMAIL_ITEM_ACTIVE = (
+    "✅ <code>{address}</code>\n"
+    "   ⏰ Còn {remaining} phút\n"
+)
+
+EMAIL_ITEM_EXPIRED = (
+    "⏰ <code>{address}</code>\n"
+    "   ❌ Đã hết hạn (cần xem ads)\n"
+)
+
+AD_REQUIRED_MSG = (
+    "⏰ <b>Email này đã hết hạn 5 phút!</b>\n"
+    "\n"
+    "📺 Xem video 30s để kích hoạt lại email:\n"
+    "<code>{address}</code>\n"
+    "\n"
+    "Sau khi xem, bạn có thể dùng lại email này."
 )
