@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Watch Ad - Earn Tokens</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        .container {
+            text-align: center;
+            padding: 30px;
+            max-width: 400px;
+        }
+        .icon { font-size: 64px; margin-bottom: 16px; }
+        h1 { font-size: 24px; margin-bottom: 8px; }
+        p { opacity: 0.9; margin-bottom: 24px; }
+        .status {
+            background: rgba(255,255,255,0.2);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        .timer { font-size: 48px; font-weight: 700; }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 12px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #fbbf24;
+            border-radius: 4px;
+            transition: width 1s linear;
+            width: 0%;
+        }
+        .success { display: none; }
+        .success .icon { font-size: 80px; }
+        .btn-close {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 16px;
+        }
+        .loading { font-size: 14px; opacity: 0.7; }
+        .error { display: none; }
+        .error .icon { font-size: 64px; }
+    </style>
+</head>
+<body>
+    <!-- Monetag SDK — must be below <body> per docs -->
+    <script src='//libtl.com/sdk.js' data-zone='11208686' data-sdk='show_11208686'></script>
+    <div class="container">
+        <!-- Watching state -->
+        <div id="ad-watching">
+            <div class="icon">📺</div>
+            <h1>Đang xem quảng cáo...</h1>
+            <p>Giữ nguyên trang này để nhận thưởng</p>
+            <div class="status">
+                <div class="timer" id="timer">30</div>
+                <div class="loading">giây còn lại</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Success state -->
+        <div class="success" id="ad-success">
+            <div class="icon">🎉</div>
+            <h1>Hoàn thành!</h1>
+            <p id="reward-text">+2 tokens đã được thêm</p>
+            <button class="btn-close" onclick="closeApp()">✅ Đóng & Nhận thưởng</button>
+        </div>
+
+        <!-- Error state -->
+        <div class="error" id="ad-error">
+            <div class="icon">⚠️</div>
+            <h1>Có lỗi xảy ra</h1>
+            <p id="error-text">Vui lòng thử lại</p>
+            <button class="btn-close" onclick="retryAd()">🔄 Thử lại</button>
+        </div>
+    </div>
+
+    <script>
+        // ═══ Init Telegram Web App ═══
+        let tg = null;
+        let isTelegram = false;
+        try {
+            if (window.Telegram && window.Telegram.WebApp) {
+                tg = window.Telegram.WebApp;
+                tg.expand();
+                tg.ready();
+                isTelegram = true;
+            }
+        } catch(e) {}
+
+        // ═══ Parse URL params ═══
+        const params = new URLSearchParams(window.location.search);
+        const USER_ID = params.get('uid') || '0';
+        const REWARD_TOKENS = parseInt(params.get('reward') || '2');
+        const AD_TOKEN = 'ad_' + USER_ID + '_' + Date.now();
+        let adCompleted = false;
+
+        // ═══ Show demo banner if not in Telegram ═══
+        if (!isTelegram) {
+            const banner = document.createElement('div');
+            banner.style.cssText = 'background:#f59e0b;color:#1e293b;padding:12px;text-align:center;font-size:13px;font-weight:600;border-radius:12px;margin-bottom:20px;';
+            banner.innerHTML = '⚠️ <b>Demo Mode</b> — Mở từ Telegram Bot để dùng thật';
+            document.querySelector('.container').prepend(banner);
+        }
+
+        // ═══ Close Web App & send data back to bot ═══
+        function closeApp() {
+            if (adCompleted && isTelegram) {
+                tg.sendData(JSON.stringify({
+                    action: 'ad_completed',
+                    token: AD_TOKEN,
+                    uid: USER_ID,
+                    reward: REWARD_TOKENS,
+                    timestamp: Date.now()
+                }));
+                tg.close();
+            } else if (adCompleted && !isTelegram) {
+                // Demo: show what would be sent
+                const data = JSON.stringify({
+                    action: 'ad_completed',
+                    token: AD_TOKEN,
+                    uid: USER_ID,
+                    reward: REWARD_TOKENS,
+                    timestamp: Date.now()
+                });
+                alert('📤 Data gửi về bot:\n\n' + JSON.stringify(JSON.parse(data), null, 2));
+            }
+        }
+
+        // ═══ Show success screen ═══
+        function showSuccess() {
+            adCompleted = true;
+            document.getElementById('ad-watching').style.display = 'none';
+            document.getElementById('ad-success').style.display = 'block';
+            const rewardText = document.getElementById('reward-text');
+            if (isTelegram) {
+                rewardText.textContent = `+${REWARD_TOKENS} tokens đã được thêm`;
+            } else {
+                rewardText.innerHTML = `+${REWARD_TOKENS} tokens đã được thêm<br><small style="opacity:0.7">(Demo — chạy trong Telegram sẽ nhận thật)</small>`;
+            }
+        }
+
+        // ═══ Show error screen ═══
+        function showError(msg) {
+            document.getElementById('ad-watching').style.display = 'none';
+            document.getElementById('ad-error').style.display = 'block';
+            document.getElementById('error-text').textContent = msg || 'Vui lòng thử lại';
+        }
+
+        // ═══ Trigger Monetag Rewarded Interstitial ═══
+        function triggerAd() {
+            if (typeof show_11208686 === 'function') {
+                show_11208686().then(() => {
+                    console.log('[AD] Monetag completed successfully');
+                    showSuccess();
+                }).catch(e => {
+                    console.warn('[AD] Monetag error:', e);
+                    // Still reward (ad might have been partially shown)
+                    showSuccess();
+                });
+            } else {
+                console.log('[AD] SDK not ready, retrying in 1s...');
+                setTimeout(triggerAd, 1000);
+            }
+        }
+
+        // ═══ Fallback countdown (30s) ═══
+        let remaining = 30;
+        const timerEl = document.getElementById('timer');
+        const progressEl = document.getElementById('progress');
+
+        const countdown = setInterval(() => {
+            remaining--;
+            timerEl.textContent = remaining;
+            progressEl.style.width = ((30 - remaining) / 30 * 100) + '%';
+
+            if (remaining <= 0) {
+                clearInterval(countdown);
+                if (!adCompleted) {
+                    console.log('[AD] Countdown finished, granting reward');
+                    showSuccess();
+                }
+            }
+        }, 1000);
+
+        // ═══ Retry function ═══
+        function retryAd() {
+            document.getElementById('ad-error').style.display = 'none';
+            document.getElementById('ad-watching').style.display = 'block';
+            remaining = 30;
+            timerEl.textContent = 30;
+            progressEl.style.width = '0%';
+            adCompleted = false;
+            setTimeout(triggerAd, 500);
+        }
+
+        // ═══ Start ad after 1s delay (let SDK load) ═══
+        setTimeout(triggerAd, 1000);
+    </script>
+</body>
+</html>
