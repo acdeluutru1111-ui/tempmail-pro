@@ -62,17 +62,32 @@
         .loading { font-size: 14px; opacity: 0.7; }
         .error { display: none; }
         .error .icon { font-size: 64px; }
+        .btn-watch {
+            background: #fbbf24; color: #1e293b; border: none;
+            padding: 16px 40px; border-radius: 14px; font-size: 18px;
+            font-weight: 700; cursor: pointer; margin-top: 12px;
+            box-shadow: 0 4px 15px rgba(251,191,36,0.4);
+        }
+        .btn-watch:active { transform: scale(0.96); }
     </style>
 </head>
 <body>
     <!-- Monetag SDK — must be below <body> per docs -->
     <script src='//libtl.com/sdk.js' data-zone='11208686' data-sdk='show_11208686'></script>
     <div class="container">
-        <!-- Watching state -->
-        <div id="ad-watching">
+        <!-- Step 1: User clicks to start -->
+        <div id="ad-start">
+            <div class="icon">🎁</div>
+            <h1>Nhận thưởng!</h1>
+            <p>Xem quảng cáo ngắn để nhận <b>+<span id="reward-display">2</span> tokens</b></p>
+            <button class="btn-watch" onclick="startAd()">▶️ Bắt đầu xem</button>
+        </div>
+
+        <!-- Step 2: Watching state -->
+        <div id="ad-watching" style="display:none;">
             <div class="icon">📺</div>
             <h1>Đang xem quảng cáo...</h1>
-            <p>Giữ nguyên trang này để nhận thưởng</p>
+            <p>Đợi quảng cáo hoàn thành để nhận thưởng</p>
             <div class="status">
                 <div class="timer" id="timer">30</div>
                 <div class="loading">giây còn lại</div>
@@ -82,7 +97,7 @@
             </div>
         </div>
 
-        <!-- Success state -->
+        <!-- Step 3: Success state -->
         <div class="success" id="ad-success">
             <div class="icon">🎉</div>
             <h1>Hoàn thành!</h1>
@@ -118,6 +133,7 @@
         const REWARD_TOKENS = parseInt(params.get('reward') || '2');
         const AD_TOKEN = 'ad_' + USER_ID + '_' + Date.now();
         let adCompleted = false;
+        let countdownTimer = null;
 
         // ═══ Show demo banner if not in Telegram ═══
         if (!isTelegram) {
@@ -154,7 +170,9 @@
         // ═══ Show success screen ═══
         function showSuccess() {
             adCompleted = true;
+            if (countdownTimer) clearInterval(countdownTimer);
             document.getElementById('ad-watching').style.display = 'none';
+            document.getElementById('ad-start').style.display = 'none';
             document.getElementById('ad-success').style.display = 'block';
             const rewardText = document.getElementById('reward-text');
             if (isTelegram) {
@@ -171,51 +189,65 @@
             document.getElementById('error-text').textContent = msg || 'Vui lòng thử lại';
         }
 
+        // ═══ Update reward display ═══
+        document.getElementById('reward-display').textContent = REWARD_TOKENS;
+
+        // ═══ Start watching (called by user click) ═══
+        function startAd() {
+            document.getElementById('ad-start').style.display = 'none';
+            document.getElementById('ad-watching').style.display = 'block';
+            startFallbackCountdown();
+            triggerMonetagAd();
+        }
+
         // ═══ Trigger Monetag Rewarded Interstitial ═══
-        function triggerAd() {
+        function triggerMonetagAd() {
             if (typeof show_11208686 === 'function') {
                 show_11208686().then(() => {
                     console.log('[AD] Monetag completed successfully');
                     showSuccess();
                 }).catch(e => {
                     console.warn('[AD] Monetag error:', e);
-                    // Still reward (ad might have been partially shown)
-                    showSuccess();
+                    if (!adCompleted) showSuccess();
                 });
             } else {
-                console.log('[AD] SDK not ready, retrying in 1s...');
-                setTimeout(triggerAd, 1000);
+                console.log('[AD] SDK not ready, retrying in 2s...');
+                setTimeout(() => {
+                    if (typeof show_11208686 === 'function') {
+                        triggerMonetagAd();
+                    } else {
+                        console.warn('[AD] SDK unavailable, using fallback timer');
+                    }
+                }, 2000);
             }
         }
 
         // ═══ Fallback countdown (30s) ═══
-        let remaining = 30;
-        const timerEl = document.getElementById('timer');
-        const progressEl = document.getElementById('progress');
+        function startFallbackCountdown() {
+            let remaining = 30;
+            const timerEl = document.getElementById('timer');
+            const progressEl = document.getElementById('progress');
+            countdownTimer = setInterval(() => {
+                remaining--;
+                timerEl.textContent = remaining;
+                progressEl.style.width = ((30 - remaining) / 30 * 100) + '%';
 
-        const countdown = setInterval(() => {
-            remaining--;
-            timerEl.textContent = remaining;
-            progressEl.style.width = ((30 - remaining) / 30 * 100) + '%';
-
-            if (remaining <= 0) {
-                clearInterval(countdown);
-                if (!adCompleted) {
-                    console.log('[AD] Countdown finished, granting reward');
-                    showSuccess();
+                if (remaining <= 0) {
+                    clearInterval(countdownTimer);
+                    if (!adCompleted) {
+                        console.log('[AD] Countdown finished, granting reward');
+                        showSuccess();
+                    }
                 }
-            }
-        }, 1000);
+            }, 1000);
+        }
 
         // ═══ Retry function ═══
         function retryAd() {
             document.getElementById('ad-error').style.display = 'none';
-            document.getElementById('ad-watching').style.display = 'block';
-            remaining = 30;
-            timerEl.textContent = 30;
-            progressEl.style.width = '0%';
+            document.getElementById('ad-watching').style.display = 'none';
+            document.getElementById('ad-start').style.display = 'block';
             adCompleted = false;
-            setTimeout(triggerAd, 500);
         }
 
         // ═══ Start ad after 1s delay (let SDK load) ═══
