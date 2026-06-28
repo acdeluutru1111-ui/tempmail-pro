@@ -816,48 +816,36 @@ WATCH_AD_HTML = '''<!DOCTYPE html>
             justify-content: center;
             color: white;
         }
-        .container {
-            text-align: center;
-            padding: 30px;
-            max-width: 400px;
-        }
+        .container { text-align: center; padding: 30px; max-width: 400px; }
         .icon { font-size: 64px; margin-bottom: 16px; }
         h1 { font-size: 24px; margin-bottom: 8px; }
         p { opacity: 0.9; margin-bottom: 24px; }
+        .btn-watch {
+            background: #fbbf24; color: #1e293b; border: none;
+            padding: 16px 40px; border-radius: 14px; font-size: 18px;
+            font-weight: 700; cursor: pointer; margin-top: 12px;
+            box-shadow: 0 4px 15px rgba(251,191,36,0.4);
+        }
+        .btn-watch:active { transform: scale(0.96); }
         .status {
-            background: rgba(255,255,255,0.2);
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 20px;
+            background: rgba(255,255,255,0.2); border-radius: 12px;
+            padding: 16px; margin-top: 20px; display: none;
         }
         .timer { font-size: 48px; font-weight: 700; }
         .progress-bar {
-            width: 100%;
-            height: 8px;
-            background: rgba(255,255,255,0.3);
-            border-radius: 4px;
-            overflow: hidden;
-            margin-top: 12px;
+            width: 100%; height: 8px; background: rgba(255,255,255,0.3);
+            border-radius: 4px; overflow: hidden; margin-top: 12px;
         }
         .progress-fill {
-            height: 100%;
-            background: #fbbf24;
-            border-radius: 4px;
-            transition: width 1s linear;
-            width: 0%;
+            height: 100%; background: #fbbf24; border-radius: 4px;
+            transition: width 1s linear; width: 0%;
         }
         .success { display: none; }
         .success .icon { font-size: 80px; }
         .btn-close {
-            background: white;
-            color: #667eea;
-            border: none;
-            padding: 14px 32px;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 16px;
+            background: white; color: #667eea; border: none;
+            padding: 14px 32px; border-radius: 12px; font-size: 16px;
+            font-weight: 600; cursor: pointer; margin-top: 16px;
         }
         .loading { font-size: 14px; opacity: 0.7; }
     </style>
@@ -866,11 +854,19 @@ WATCH_AD_HTML = '''<!DOCTYPE html>
     <!-- Monetag SDK — must be below <body> per docs -->
     <script src='//libtl.com/sdk.js' data-zone='11208686' data-sdk='show_11208686'></script>
     <div class="container">
-        <div id="ad-watching">
+        <!-- Step 1: User clicks to start -->
+        <div id="ad-start">
+            <div class="icon">🎁</div>
+            <h1>Nhận thưởng!</h1>
+            <p>Xem quảng cáo ngắn để nhận <b>+REWARD_TOKENS tokens</b></p>
+            <button class="btn-watch" onclick="startAd()">▶️ Bắt đầu xem</button>
+        </div>
+        <!-- Step 2: Watching ad -->
+        <div id="ad-watching" style="display:none;">
             <div class="icon">📺</div>
             <h1>Đang xem quảng cáo...</h1>
-            <p>Giữ nguyên trang này để nhận thưởng</p>
-            <div class="status">
+            <p>Đợi广告 hoàn thành để nhận thưởng</p>
+            <div class="status" id="ad-status" style="display:block;">
                 <div class="timer" id="timer">30</div>
                 <div class="loading">giây còn lại</div>
                 <div class="progress-bar">
@@ -878,75 +874,91 @@ WATCH_AD_HTML = '''<!DOCTYPE html>
                 </div>
             </div>
         </div>
+        <!-- Step 3: Success -->
         <div class="success" id="ad-success">
             <div class="icon">🎉</div>
             <h1>Hoàn thành!</h1>
-            <p>+REWARD_TOKENS tokens đã được thêm</p>
+            <p id="reward-text">+REWARD_TOKENS tokens đã được thêm</p>
             <button class="btn-close" onclick="closeApp()">✅ Đóng & Nhận thưởng</button>
         </div>
     </div>
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
+        tg.ready();
         const REWARD_TOKENS = REWARD_TOKENS_PLACEHOLDER;
         const USER_ID = USER_ID_PLACEHOLDER;
         const AD_TOKEN = 'ad_' + USER_ID + '_' + Date.now();
         let adCompleted = false;
-        
+        let countdownTimer = null;
+
         function closeApp() {
-            if (adCompleted) {
+            if (adCompleted && tg.initData) {
                 tg.sendData(JSON.stringify({
                     action: 'ad_completed',
                     token: AD_TOKEN,
-                    uid: USER_ID
+                    uid: USER_ID,
+                    reward: REWARD_TOKENS
                 }));
             }
-            tg.close();
+            setTimeout(() => tg.close(), 200);
         }
-        
-        // Trigger Monetag rewarded interstitial
-        function triggerAd() {
-            if (typeof show_11208686 === 'function') {
-                show_11208686().then(() => {
-                    adCompleted = true;
-                    showSuccess();
-                }).catch(e => {
-                    console.warn('Ad error:', e);
-                    // Still allow reward (ad might have been shown partially)
-                    adCompleted = true;
-                    showSuccess();
-                });
-            } else {
-                console.log('SDK not ready, retrying...');
-                setTimeout(triggerAd, 1000);
-            }
-        }
-        
+
         function showSuccess() {
+            adCompleted = true;
+            if (countdownTimer) clearInterval(countdownTimer);
             document.getElementById('ad-watching').style.display = 'none';
+            document.getElementById('ad-start').style.display = 'none';
             document.getElementById('ad-success').style.display = 'block';
         }
-        
-        // Fallback countdown (if SDK doesn't trigger)
-        let remaining = 30;
-        const timerEl = document.getElementById('timer');
-        const progressEl = document.getElementById('progress');
-        
-        const countdown = setInterval(() => {
-            remaining--;
-            timerEl.textContent = remaining;
-            progressEl.style.width = ((30 - remaining) / 30 * 100) + '%';
-            if (remaining <= 0) {
-                clearInterval(countdown);
-                if (!adCompleted) {
-                    adCompleted = true;
-                    showSuccess();
+
+        function startFallbackCountdown() {
+            let remaining = 30;
+            document.getElementById('ad-watching').style.display = 'block';
+            document.getElementById('ad-start').style.display = 'none';
+            countdownTimer = setInterval(() => {
+                remaining--;
+                document.getElementById('timer').textContent = remaining;
+                document.getElementById('progress').style.width = ((30 - remaining) / 30 * 100) + '%';
+                if (remaining <= 0) {
+                    clearInterval(countdownTimer);
+                    if (!adCompleted) showSuccess();
                 }
+            }, 1000);
+        }
+
+        // Called when user clicks "Bắt đầu xem" — triggers Monetag Rewarded Interstitial
+        function startAd() {
+            // Hide start button, show watching UI
+            document.getElementById('ad-start').style.display = 'none';
+            startFallbackCountdown();
+
+            // Call Monetag SDK (must be from user click)
+            if (typeof show_11208686 === 'function') {
+                show_11208686().then(() => {
+                    console.log('[AD] Rewarded Interstitial completed');
+                    showSuccess();
+                }).catch(e => {
+                    console.warn('[AD] Rewarded Interstitial error:', e);
+                    // Still allow reward — ad may have been partially shown
+                    if (!adCompleted) showSuccess();
+                });
+            } else {
+                console.warn('[AD] Monetag SDK not loaded yet, retrying...');
+                setTimeout(() => {
+                    if (typeof show_11208686 === 'function') {
+                        show_11208686().then(() => {
+                            showSuccess();
+                        }).catch(() => {
+                            if (!adCompleted) showSuccess();
+                        });
+                    } else {
+                        // SDK never loaded — fallback timer already running
+                        console.warn('[AD] SDK unavailable, using fallback timer');
+                    }
+                }, 2000);
             }
-        }, 1000);
-        
-        // Start ad after 1s delay
-        setTimeout(triggerAd, 1000);
+        }
     </script>
 </body>
 </html>'''
