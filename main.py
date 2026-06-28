@@ -858,7 +858,7 @@ WATCH_AD_HTML = '''<!DOCTYPE html>
         <div id="ad-start">
             <div class="icon">🎁</div>
             <h1>Nhận thưởng!</h1>
-            <p>Xem quảng cáo ngắn để nhận <b>+REWARD_TOKENS tokens</b></p>
+            <p>Xem quảng cáo ngắn để nhận <b>+REWARD_DISPLAY tokens</b></p>
             <button class="btn-watch" onclick="startAd()">▶️ Bắt đầu xem</button>
         </div>
         <!-- Step 2: Watching ad -->
@@ -878,7 +878,7 @@ WATCH_AD_HTML = '''<!DOCTYPE html>
         <div class="success" id="ad-success">
             <div class="icon">🎉</div>
             <h1>Hoàn thành!</h1>
-            <p id="reward-text">+REWARD_TOKENS tokens đã được thêm</p>
+            <p id="reward-text">+REWARD_DISPLAY tokens đã được thêm</p>
             <button class="btn-close" onclick="closeApp()">✅ Đóng & Nhận thưởng</button>
         </div>
     </div>
@@ -1042,6 +1042,7 @@ async def handle_watch_ad(request: web.Request):
     # Replace placeholders in HTML
     html = WATCH_AD_HTML.replace("REWARD_TOKENS_PLACEHOLDER", str(AD_REWARDED_TOKENS))
     html = html.replace("USER_ID_PLACEHOLDER", str(uid))
+    html = html.replace("REWARD_DISPLAY", str(AD_REWARDED_TOKENS))
     
     return web.Response(text=html, content_type="text/html")
 
