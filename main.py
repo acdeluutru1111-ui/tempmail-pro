@@ -1042,7 +1042,6 @@ async def handle_watch_ad(request: web.Request):
     # Replace placeholders in HTML
     html = WATCH_AD_HTML.replace("REWARD_TOKENS_PLACEHOLDER", str(AD_REWARDED_TOKENS))
     html = html.replace("USER_ID_PLACEHOLDER", str(uid))
-    html = html.replace("REWARD_TOKENS", str(AD_REWARDED_TOKENS))  # For JS const
     
     return web.Response(text=html, content_type="text/html")
 
