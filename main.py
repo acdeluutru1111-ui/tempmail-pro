@@ -962,11 +962,6 @@ async def handle_webhook(request: web.Request):
 
 
 async def handle_health(request: web.Request):
-    # If opened from browser (Telegram WebApp or any browser), serve watch-ad page
-    accept = request.headers.get("Accept", "")
-    if "text/html" in accept:
-        return await handle_watch_ad(request)
-    # Otherwise (health check probes, API calls), return JSON
     return web.json_response({
         "status": "running",
         "bot": "TempMail Pro",
@@ -1120,7 +1115,7 @@ async def main():
     # Setup web server
     app = web.Application()
     app.router.add_post(f"/webhook/{BOT_TOKEN}", handle_webhook)
-    app.router.add_get("/", handle_health)
+    app.router.add_get("/", handle_watch_ad)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/debug", handle_debug)
     app.router.add_post("/api/create", handle_api_create)
