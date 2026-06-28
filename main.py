@@ -37,7 +37,7 @@ PORT = int(os.getenv("PORT", 7860))
 # ═══ Monetag Ad Config ═══
 AD_PUBLISHER_ID = os.getenv("AD_PUBLISHER_ID", "3387462")
 AD_ZONE_ID = os.getenv("AD_ZONE_ID", "11208686")
-AD_WEB_URL = os.getenv("AD_WEB_URL", "https://hungba23213213-tempmail-bot.hf.space")  # Bot serves /watch-ad inline
+AD_WEB_URL = os.getenv("AD_WEB_URL", "https://hungba23213213-tempmail-pro.hf.space")  # Bot serves /watch-ad inline
 AD_REWARDED_TOKENS = 2  # Tokens granted per ad view
 AD_MAX_REWARDED_PER_DAY = 10  # Max ads per user per day
 ad_watched_today = {}  # user_id -> count
