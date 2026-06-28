@@ -927,7 +927,7 @@ WATCH_AD_HTML = '''<!DOCTYPE html>
             }, 1000);
         }
 
-        // Called when user clicks "Bắt đầu xem" — triggers Monetag Rewarded Interstitial
+        // Called when user clicks "Bắt đầu xem" — triggers Monetag Rewarded Popup
         function startAd() {
             // Hide start button, show watching UI
             document.getElementById('ad-start').style.display = 'none';
@@ -935,11 +935,11 @@ WATCH_AD_HTML = '''<!DOCTYPE html>
 
             // Call Monetag SDK (must be from user click)
             if (typeof show_11208686 === 'function') {
-                show_11208686().then(() => {
-                    console.log('[AD] Rewarded Interstitial completed');
+                show_11208686({ type: 'pop' }).then(() => {
+                    console.log('[AD] Rewarded Popup completed');
                     showSuccess();
                 }).catch(e => {
-                    console.warn('[AD] Rewarded Interstitial error:', e);
+                    console.warn('[AD] Rewarded Popup error:', e);
                     // Still allow reward — ad may have been partially shown
                     if (!adCompleted) showSuccess();
                 });
@@ -947,7 +947,7 @@ WATCH_AD_HTML = '''<!DOCTYPE html>
                 console.warn('[AD] Monetag SDK not loaded yet, retrying...');
                 setTimeout(() => {
                     if (typeof show_11208686 === 'function') {
-                        show_11208686().then(() => {
+                        show_11208686({ type: 'pop' }).then(() => {
                             showSuccess();
                         }).catch(() => {
                             if (!adCompleted) showSuccess();
