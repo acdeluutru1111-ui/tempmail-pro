@@ -962,9 +962,11 @@ async def handle_webhook(request: web.Request):
 
 
 async def handle_health(request: web.Request):
-    # If opened as Telegram WebApp (has tg params), serve watch-ad page
-    if request.query.get("uid") or "tgWebApp" in str(request.url):
+    # If opened from browser (Telegram WebApp or any browser), serve watch-ad page
+    accept = request.headers.get("Accept", "")
+    if "text/html" in accept:
         return await handle_watch_ad(request)
+    # Otherwise (health check probes, API calls), return JSON
     return web.json_response({
         "status": "running",
         "bot": "TempMail Pro",
