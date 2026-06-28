@@ -115,12 +115,14 @@ async def tg_api_async(method, data=None, timeout=15):
     return await asyncio.to_thread(tg_api, method, data, timeout)
 
 
-def btn(text, callback_data=None, url=None):
+def btn(text, callback_data=None, url=None, web_app=None):
     b = {"text": text}
     if callback_data:
         b["callback_data"] = callback_data
     if url:
         b["url"] = url
+    if web_app:
+        b["web_app"] = {"url": web_app}
     return b
 
 
@@ -629,7 +631,7 @@ async def do_task_video(chat, uid, mid):
         return
     
     # Web App button opens Monetag rewarded ad page
-    watch_url = f"{AD_WEB_URL}/?uid={uid}&reward={AD_REWARDED_TOKENS}" if AD_WEB_URL else f"https://hungba23213213-tempmail-bot.hf.space/watch-ad?uid={uid}"
+    watch_url = f"{AD_WEB_URL}/watch-ad?uid={uid}&reward={AD_REWARDED_TOKENS}"
     
     await tg_api_async("editMessageText", {
         "chat_id": chat, "message_id": mid,
@@ -642,7 +644,7 @@ async def do_task_video(chat, uid, mid):
         ),
         "parse_mode": "HTML",
         "reply_markup": kb([
-            [btn("📺 Xem Video (+2 tokens)", url=watch_url)],
+            [btn("📺 Xem Video (+2 tokens)", web_app=watch_url)],
             [btn("◀️ Quay lại", callback_data="tasks_menu")],
         ]),
     })
